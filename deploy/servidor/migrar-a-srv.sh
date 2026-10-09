@@ -4,23 +4,42 @@
 # Es idempotente y NO borra nada: /home/wvargas/tableros-bi queda como respaldo. Si la prueba de la base falla, aborta antes de tocar el cron.
 set -Eeuo pipefail
 
-readonly ORIGEN="/home/wvargas/tableros-bi"
+# Valores por defecto = servidor de desarrollo. En producción:
+#   sudo bash migrar-a-srv.sh --origen /home/<usuario>/tableros-bi --web-dir /srv/tomcat8/webapps/tablero-cvp --url-prueba http://localhost:8095/tablero-cvp/Tablero_CVP.html
+ORIGEN="/home/wvargas/tableros-bi"
+WEB_DIR="/srv/tomcat/webapps/tablero-cvp"
+URL_PRUEBA="http://localhost/tablero-cvp/Tablero_CVP.html"
+OMITIR_PRUEBA="no"
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --origen) ORIGEN="${2:?falta el valor de --origen}"; shift 2 ;;
+    --web-dir) WEB_DIR="${2:?falta el valor de --web-dir}"; shift 2 ;;
+    --url-prueba) URL_PRUEBA="${2:?falta el valor de --url-prueba}"; shift 2 ;;
+    --omitir-prueba) OMITIR_PRUEBA="si"; shift ;;   # solo para pruebas sin base de datos
+    *) echo "Argumento desconocido: $1" >&2; exit 1 ;;
+  esac
+done
+readonly ORIGEN WEB_DIR URL_PRUEBA OMITIR_PRUEBA
 readonly DESTINO="/srv/tableros-bi/cvp"
 readonly USUARIO="tableros"
-readonly WEB_DIR="/srv/tomcat/webapps/tablero-cvp"
 readonly CRON_FILE="/etc/cron.d/tableros-bi-cvp"
-OMITIR_PRUEBA="no"
-[[ "${1:-}" == "--omitir-prueba" ]] && OMITIR_PRUEBA="si"   # solo para pruebas sin base de datos
+readonly CONF_DIR="/etc/tableros-bi"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Este script debe ejecutarse con sudo." >&2
   exit 1
 fi
+[[ -d /etc/cron.d ]] || { echo "No existe /etc/cron.d: cron no está instalado. No se puede programar la actualización diaria." >&2; exit 1; }
+[[ "$WEB_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--web-dir inválido" >&2; exit 1; }
+[[ "$URL_PRUEBA" =~ ^http://localhost(:[0-9]+)?/[A-Za-z0-9._/-]+$ ]] || { echo "--url-prueba inválida (debe ser http://localhost[:puerto]/ruta)" >&2; exit 1; }
 for f in "$ORIGEN/app/actualizar_datos.py" "$ORIGEN/app/cvp_config.py" "$ORIGEN/cvp.env"; do
   [[ -f "$f" ]] || { echo "Falta $f" >&2; exit 1; }
 done
 [[ -d "$ORIGEN/lib/psycopg2" ]] || { echo "Falta $ORIGEN/lib/psycopg2" >&2; exit 1; }
-[[ -d "$WEB_DIR" ]] || { echo "Falta $WEB_DIR (carpeta del tablero)" >&2; exit 1; }
+if [[ ! -d "$WEB_DIR" ]]; then
+  [[ -d "$(dirname "$WEB_DIR")" ]] || { echo "No existe $(dirname "$WEB_DIR"): revisar --web-dir" >&2; exit 1; }
+  mkdir -p "$WEB_DIR"   # primera instalación (producción): la carpeta del tablero aún no existe
+fi
 
 echo "1/6 Usuario de servicio '$USUARIO'"
 if ! id "$USUARIO" >/dev/null 2>&1; then
@@ -64,9 +83,19 @@ CRON
 chmod 0644 "$CRON_FILE.new"
 mv -f "$CRON_FILE.new" "$CRON_FILE"
 
+echo "    Configuración del script de despliegue: $CONF_DIR/deploy.conf"
+mkdir -p "$CONF_DIR"
+cat > "$CONF_DIR/deploy.conf.new" <<CONF
+WEB_DIR=$WEB_DIR
+URL_PRUEBA=$URL_PRUEBA
+CONF
+chown root:root "$CONF_DIR/deploy.conf.new"
+chmod 0644 "$CONF_DIR/deploy.conf.new"
+mv -f "$CONF_DIR/deploy.conf.new" "$CONF_DIR/deploy.conf"
+
 echo "6/6 Listo."
 echo
 echo "Pendiente (a mano):"
-echo "  - Quitar el cron viejo de wvargas para que no corra dos veces:   sudo crontab -u wvargas -r"
+echo "  - Si había un cron del usuario que instaló antes, quitarlo para que no corra dos veces (sudo crontab -u <usuario> -r)"
 echo "  - Mañana después de las 6:00:   tail -8 $DESTINO/log/actualizador.log ; ls -l $WEB_DIR/data.js"
 echo "  - Cuando todo esté confirmado se puede borrar el respaldo:   rm -rf $ORIGEN"

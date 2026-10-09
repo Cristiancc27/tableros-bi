@@ -1,6 +1,6 @@
 # Despliegue del tablero CVP en producción (cvprogreso.cvp.gov.co)
 
-> **Estado: preparado, NO ejecutado.** Nada de esto se corre hasta que QA apruebe y quien administra producción dé el visto bueno a los pasos con root (marcados 🔒). Se basa en una revisión de solo lectura hecha el 2026-10-09 y en el despliegue ya validado en desarrollo (`DESPLIEGUE_DESARROLLO.md`).
+> **Estado: preparado, NO ejecutado.** Nada de esto se corre hasta que QA apruebe y quien administra producción dé el visto bueno a los pasos con root (marcados 🔒). Se basa en una revisión de solo lectura hecha el 2026-10-09 y en el despliegue ya validado en desarrollo (`DESPLIEGUE_DESARROLLO.md`, `deploy/README.md`). Misma estructura que desarrollo: usuario de servicio `tableros`, `/srv/tableros-bi/cvp/`, cron del sistema y despliegue del HTML por GitHub Actions (un `yml` y un environment por ambiente, convención de Felix).
 
 ## Lo que se encontró en producción (solo lectura)
 | Dato | Valor |
@@ -19,42 +19,43 @@
 1. **Pagos en $0:** ¿se sale así (con la advertencia) o se espera al módulo financiero? (Cristian / Guillermo)
 2. **Sin login:** `/tablero-cvp/data.js` es público para quien tenga la URL (CHIP, barrio, estados). ¿Se acepta en producción o se protege primero? (Daniel / Victor)
 3. **Quién ejecuta los pasos 🔒:** administrador de producción con sudo.
+4. **QA de CVP:** el perfil `preproduccion` del pom apunta al servidor de desarrollo; confirmar si QA es ese mismo servidor (entonces no hay `cvp-qa`).
 
 ## Aprobaciones necesarias
 | Paso | Qué cambia | Requiere |
 |---|---|---|
-| 1 | Crear carpeta en `webapps` | 🔒 sudo |
 | 3 | Crear `tablero_ro` en la BD de producción (solo `SELECT`) | 🔒 admin de BD |
-| 7 | Nuevo `location` en nginx + recarga | 🔒 sudo, **toca el nginx compartido** |
-| 9 | Cambio del pom `produccion` + WAR | Jenkins producción |
+| 5 | Usuario `tableros`, `/srv/tableros-bi`, cron del sistema, `/etc/tableros-bi/deploy.conf` | 🔒 sudo |
+| 6 | Usuario `cicd-tableros`, script `deploy-tableros-bi`, sudoers | 🔒 sudo |
+| 8 | Nuevo `location` en nginx + recarga | 🔒 sudo, **toca el nginx compartido** |
+| 9 | Environment `cvp-prod`, llave y variables en GitHub | admin del repo |
+| 10 | Cambio del pom `produccion` + WAR | Jenkins producción |
 
 ## 0. Revisión previa (solo lectura)
-    ssh Interkont-Produccion 'df -h / | tail -1; date; python3 --version; ls -ld /srv/tomcat8/webapps; grep -n "autoDeploy" /srv/tomcat8/conf/server.xml; systemctl is-active cron; sudo -n true 2>&1 | head -1'
+    ssh Interkont-Produccion 'df -h / | tail -1; date; python3 --version; ls -ld /srv/tomcat8/webapps; grep -n "autoDeploy" /srv/tomcat8/conf/server.xml; systemctl is-active cron; ls -d /etc/cron.d'
+Si `autoDeploy` no es `true`, Tomcat no desplegará la carpeta sola: avisar antes de seguir.
 
-## 1. 🔒 Carpeta del tablero
-    ssh -t Interkont-Produccion 'sudo mkdir /srv/tomcat8/webapps/tablero-cvp && sudo chown wvargas:wvargas /srv/tomcat8/webapps/tablero-cvp && sudo mkdir /srv/tomcat8/webapps/tablero-cvp/WEB-INF && sudo chown wvargas:wvargas /srv/tomcat8/webapps/tablero-cvp/WEB-INF'
-Si `autoDeploy` no es `true` en `server.xml`, Tomcat no desplegará la carpeta sola: avisar antes de seguir (habría que reiniciar o usar el manager).
-
-## 2. Archivos y psycopg2 (desde la Mac, en la carpeta de este repo)
-El wheel para Python 3.8 (`psycopg2-binary 2.9.9`) se descarga así (sha256 `ead20f79…c972`):
+## 1. Archivos y psycopg2 (desde la Mac, en la carpeta de este repo)
+El wheel de Python 3.8 (`psycopg2-binary 2.9.9`, sha256 `ead20f79…c972`):
     docker run --rm --platform linux/amd64 -v /tmp/wheel38:/w python:3.8 pip download -q --no-deps --only-binary=:all: --dest /w "psycopg2-binary==2.9.9"
-Copiar (el actualizador **no** necesita el parche de Python 3.5, pero es compatible):
+Copiar a la carpeta del operador (`~/tableros-bi`; el actualizador es compatible con Python 3.5 y 3.8):
     ssh Interkont-Produccion 'mkdir -p ~/tableros-bi/app ~/tableros-bi/lib'
-    scp actualizar_datos.py cvp_config.py Interkont-Produccion:tableros-bi/app/
+    scp /Users/wuilly/Work/Interkont/CVP/tableros-bi/actualizar_datos.py /Users/wuilly/Work/Interkont/CVP/tableros-bi/cvp_config.py Interkont-Produccion:tableros-bi/app/
     scp /tmp/psycopg2_cp38.whl Interkont-Produccion:tableros-bi/
     ssh Interkont-Produccion 'cd ~/tableros-bi && python3 -m zipfile -e psycopg2_cp38.whl lib && PYTHONPATH=lib python3 -c "import psycopg2; print(psycopg2.__version__)"'
 
-## 3. 🔒 Usuario de solo lectura (una vez, como administrador de la BD)
+## 2. (reservado)
+
+## 3. 🔒 Usuario de solo lectura en la BD de producción (una vez, administrador de la BD)
     ssh -t Interkont-Produccion 'psql -h localhost -p 5432 -U cobra -d viviendacvp -W'
     CREATE ROLE tablero_ro LOGIN PASSWORD '<clave-nueva>' NOSUPERUSER NOCREATEDB NOCREATEROLE;
     GRANT CONNECT ON DATABASE viviendacvp TO tablero_ro;
     GRANT USAGE ON SCHEMA public, autenticacion TO tablero_ro;
     GRANT SELECT ON public.obra, public.tipoestadobra, public.relacioncontratoobra, public.logestadoobra, public.contrato, public.contratocontratista, public.desembolso, autenticacion.contratista, autenticacion.tercero TO tablero_ro;
     ALTER ROLE tablero_ro SET default_transaction_read_only = on;
-Comprobar que no escribe: `psql -h localhost -p 5432 -U tablero_ro -d viviendacvp -W -c "create table public.zz(x int)"` debe fallar con *read-only transaction*.
-La clave no se comparte por chat ni se guarda en el repo.
+Comprobar que no escribe: `psql -h localhost -p 5432 -U tablero_ro -d viviendacvp -W -c "create table public.zz(x int)"` debe fallar con *read-only transaction*. La clave no se comparte por chat ni se guarda en el repo.
 
-## 4. Configuración (la clave solo vive en este archivo, permisos 600)
+## 4. Configuración con la clave (permisos 600, en `~/tableros-bi/cvp.env`)
     ssh Interkont-Produccion
     umask 077
     cat > ~/tableros-bi/cvp.env <<'EOF2'
@@ -71,43 +72,61 @@ La clave no se comparte por chat ni se guarda en el repo.
     CVP_FECHA_FIN=2026-12-31
     EOF2
 
-## 5. Primera corrida en carpeta temporal (no toca webapps)
-    mkdir -p /tmp/tablero-prueba && cd ~/tableros-bi/app && PYTHONIOENCODING=utf-8 CVP_WEB_DIR=/tmp/tablero-prueba PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
-Debe imprimir ~1.151 hogares… (los lotes suman los hogares de los contratos configurados) y `Listo: /tmp/tablero-prueba/data.js`. Comparar con un conteo SQL independiente antes de publicar.
+## 5. 🔒 Carpeta general, usuario de servicio y cron (`migrar-a-srv.sh`)
+Copiar el script y ejecutarlo con los valores de producción. Crea el usuario `tableros`, copia el actualizador a `/srv/tableros-bi/cvp`, **prueba el actualizador contra la base en una carpeta temporal** (si falla, no toca el cron), crea la carpeta del tablero, `/etc/cron.d/tableros-bi-cvp` (6:00) y `/etc/tableros-bi/deploy.conf` (rutas de producción para el script de despliegue):
+    scp /Users/wuilly/Work/Interkont/CVP/tableros-bi/deploy/servidor/migrar-a-srv.sh /Users/wuilly/Work/Interkont/CVP/tableros-bi/deploy/servidor/deploy-tableros-bi /Users/wuilly/Work/Interkont/CVP/tableros-bi/deploy/servidor/sudoers-cicd-deploy-tableros-bi Interkont-Produccion:/tmp/
+    ssh -t Interkont-Produccion 'sudo bash /tmp/migrar-a-srv.sh --origen /home/wvargas/tableros-bi --web-dir /srv/tomcat8/webapps/tablero-cvp --url-prueba http://localhost:8095/tablero-cvp/Tablero_CVP.html'
+(Cambiar `/home/wvargas` por el usuario del operador.) Debe imprimir 1.151 hogares aprox. y `Listo`. Primera carga de `data.js` y `config.js` (el HTML y el `web.xml` los despliega el workflow, paso 9):
+    ssh -t Interkont-Produccion 'cd /srv/tableros-bi/cvp/app && sudo -u tableros env PYTHONIOENCODING=utf-8 CVP_WEB_DIR=/srv/tomcat8/webapps/tablero-cvp PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env && printf "window.CVP_CONFIG = {allowSample: false};\n" | sudo -u tableros tee /srv/tomcat8/webapps/tablero-cvp/config.js'
+Comparar los conteos con una consulta SQL independiente antes de publicar.
 
-## 6. Publicar archivos
-    DEST=/srv/tomcat8/webapps/tablero-cvp
-    cp /tmp/tablero-prueba/data.js $DEST/data.js && printf 'window.CVP_CONFIG = {allowSample: false};\n' > $DEST/config.js
-Desde la Mac:
-    scp Tablero_CVP.html Interkont-Produccion:/srv/tomcat8/webapps/tablero-cvp/
-    scp deploy/WEB-INF/web.xml Interkont-Produccion:/srv/tomcat8/webapps/tablero-cvp/WEB-INF/
-El `web.xml` cambia `X-Frame-Options` a `SAMEORIGIN` solo para este contexto (necesario para el iframe del JSF).
+## 6. 🔒 Usuario de despliegue propio y script (producción no tiene `cicd-deploy`)
+    ssh -t Interkont-Produccion 'sudo useradd -m -s /bin/bash cicd-tableros && sudo passwd -l cicd-tableros'
+    ssh -t Interkont-Produccion 'sudo install -o root -g root -m 0755 /tmp/deploy-tableros-bi /usr/local/sbin/deploy-tableros-bi'
+    ssh Interkont-Produccion 'sed "s/^cicd-deploy /cicd-tableros /" /tmp/sudoers-cicd-deploy-tableros-bi > /tmp/sudoers-cicd-tableros-bi'
+    ssh -t Interkont-Produccion 'sudo visudo -cf /tmp/sudoers-cicd-tableros-bi && sudo install -o root -g root -m 0440 /tmp/sudoers-cicd-tableros-bi /etc/sudoers.d/cicd-tableros-bi && sudo visudo -c'
+Llave solo para este repo (en la Mac; la privada nunca se guarda fuera de GitHub):
+    ssh-keygen -t ed25519 -N "" -C "gh-actions tableros-bi cvp-prod" -f /tmp/cvp_prod_key
+    ssh -t Interkont-Produccion 'sudo install -d -m 700 -o cicd-tableros -g cicd-tableros /home/cicd-tableros/.ssh'
+    ssh Interkont-Produccion 'cat > /tmp/cvp_prod_key.pub' < /tmp/cvp_prod_key.pub
+    ssh -t Interkont-Produccion 'sudo install -m 600 -o cicd-tableros -g cicd-tableros /tmp/cvp_prod_key.pub /home/cicd-tableros/.ssh/authorized_keys'
 
-## 7. 🔒 nginx: ruta `/tablero-cvp`
-Tomcat sirve el contexto en `localhost:8095/tablero-cvp`, pero nginx solo enruta los contextos que tienen `location`. Hay que **duplicar el bloque `location /cobracvp-webcomponents`** de `/etc/nginx/sites-enabled/sgi.conf` cambiando el nombre:
+## 7. (reservado)
+
+## 8. 🔒 nginx: ruta `/tablero-cvp`
+Tomcat sirve el contexto en `localhost:8095/tablero-cvp`, pero nginx solo enruta los contextos que tienen `location`. **Duplicar el bloque `location /cobracvp-webcomponents`** de `/etc/nginx/sites-enabled/sgi.conf` cambiando el nombre:
     ssh -t Interkont-Produccion 'sudo cp /etc/nginx/sites-available/sgi.conf /etc/nginx/sites-available/sgi.conf.bak-$(date +%Y%m%d-%H%M)'
     # editar sgi.conf: copiar el bloque de /cobracvp-webcomponents y dejarlo como /tablero-cvp (proxy_pass http://localhost:8095/tablero-cvp)
     ssh -t Interkont-Produccion 'sudo nginx -t'
     ssh -t Interkont-Produccion 'sudo systemctl reload nginx'
-No recargar si `nginx -t` falla. Revertir: restaurar el `.bak` y `systemctl reload nginx`.
-Comprobar: `curl -sI https://cvprogreso.cvp.gov.co/tablero-cvp/data.js | grep -i -E "^HTTP|frame"` → `200` y `X-Frame-Options: SAMEORIGIN`.
+No recargar si `nginx -t` falla. Revertir: restaurar el `.bak` y recargar.
 
-## 8. Cron diario (hora del servidor; confirmar con `date`)
-    ssh Interkont-Produccion '(crontab -l 2>/dev/null; echo "0 6 * * * cd /home/wvargas/tableros-bi/app && PYTHONIOENCODING=utf-8 CVP_WEB_DIR=/srv/tomcat8/webapps/tablero-cvp PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env >> /home/wvargas/tableros-bi/actualizador.log 2>&1") | crontab -'
-Revisar antes con `crontab -l` para no pisar uno existente. En producción lo recomendable es un usuario de servicio en vez de `wvargas`.
+## 9. GitHub: environment `cvp-prod` y primer despliegue (admin del repo)
+Convención del equipo (Felix): **un `yml` por ambiente y un environment por ambiente**. Producción usa `.github/workflows/deploy-prod.yml` (solo manual) y el environment `cvp-prod`.
+Environment con revisor obligatorio y limitado a la rama `cvp` (reemplazar `<id>` con `gh api users/<login> --jq .id`):
+    gh api -X PUT repos/gitinterkont/tableros-bi/environments/cvp-prod --input - <<'EOF3'
+    {"reviewers":[{"type":"User","id":<id>}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+    EOF3
+    gh api -X POST repos/gitinterkont/tableros-bi/environments/cvp-prod/deployment-branch-policies -f name=cvp
+Variables y secreto (la llave privada se borra de la Mac al terminar):
+    gh variable set DEPLOY_HOST --env cvp-prod --repo gitinterkont/tableros-bi --body 3.21.77.133
+    gh variable set DEPLOY_USER --env cvp-prod --repo gitinterkont/tableros-bi --body cicd-tableros
+    ssh-keyscan -t ed25519 3.21.77.133 2>/dev/null | gh variable set DEPLOY_KNOWN_HOSTS --env cvp-prod --repo gitinterkont/tableros-bi
+    ssh-keygen -lf /tmp/cvp_prod_key.pub | awk '{print $2}' | gh variable set DEPLOY_KEY_FINGERPRINT --env cvp-prod --repo gitinterkont/tableros-bi
+    gh secret set DEPLOY_SSH_PRIVATE_KEY --env cvp-prod --repo gitinterkont/tableros-bi < /tmp/cvp_prod_key
+    rm -P /tmp/cvp_prod_key /tmp/cvp_prod_key.pub
+Primer despliegue: Actions → *Desplegar tablero CVP en producción* → *Run workflow* (rama `cvp`; el revisor lo aprueba). Si la conexión no responde, revisar el *security group* de AWS de producción: debe permitir SSH desde la IP del runner (`ip-172-31-38-67`).
 
-## 9. Menú del JSF (cobra-housing)
-En `pom.xml`, perfil `produccion`: `<url.tablerocvp>/tablero-cvp/Tablero_CVP.html</url.tablerocvp>` (hoy `${url.bicvprogreso}` = Power BI). Desplegar el WAR de producción con Jenkins **después** de los pasos 1–7. Preproducción queda para el final y necesita su propia carpeta y actualizador.
-Reversión del menú: volver `url.tablerocvp` a `${url.bicvprogreso}` y redesplegar.
+## 10. Menú del JSF (cobra-housing)
+En `pom.xml`, perfil `produccion`: `<url.tablerocvp>/tablero-cvp/Tablero_CVP.html</url.tablerocvp>` (hoy `${url.bicvprogreso}` = Power BI). Desplegar el WAR de producción con Jenkins **después** de los pasos anteriores. Preproducción queda para el final y necesita su propia carpeta y actualizador. Reversión del menú: volver `url.tablerocvp` a `${url.bicvprogreso}` y redesplegar.
 
 ## Verificación final
-1. `https://cvprogreso.cvp.gov.co/tablero-cvp/Tablero_CVP.html` carga con datos.
+1. `https://cvprogreso.cvp.gov.co/tablero-cvp/Tablero_CVP.html` carga con datos y `X-Frame-Options: SAMEORIGIN` (`curl -sI`).
 2. En el JSF: Reportes → Tablero CVProgreso muestra el tablero en el iframe.
 3. Las 5 pestañas, los CSV y el PDF.
 4. Las cifras de la Portada coinciden con un conteo SQL directo a la base.
-5. El día siguiente, `tail ~/tableros-bi/actualizador.log` termina con `Actualizacion terminada` y `data.js` tiene la hora de la corrida.
+5. El día siguiente, `tail /srv/tableros-bi/cvp/log/actualizador.log` termina con `Actualizacion terminada` y `data.js` tiene la hora de la corrida.
 
 ## Rollback completo
-    ssh -t Interkont-Produccion 'rm -rf ~/tableros-bi /tmp/tablero-prueba; sudo rm -rf /srv/tomcat8/webapps/tablero-cvp; crontab -r'
-Más: restaurar el `.bak` de nginx y recargar; en la BD `DROP OWNED BY tablero_ro; DROP ROLE tablero_ro;`; en el pom, volver a `${url.bicvprogreso}`.
-(`crontab -r` borra TODO el cron del usuario: solo si no había otras tareas.)
+    ssh -t Interkont-Produccion 'sudo rm -rf /srv/tomcat8/webapps/tablero-cvp /srv/tableros-bi /etc/cron.d/tableros-bi-cvp /etc/tableros-bi /usr/local/sbin/deploy-tableros-bi /etc/sudoers.d/cicd-tableros-bi; sudo userdel -r cicd-tableros; sudo userdel tableros; rm -rf ~/tableros-bi'
+Más: restaurar el `.bak` de nginx y recargar; en la BD `DROP OWNED BY tablero_ro; DROP ROLE tablero_ro;`; en el pom, volver a `${url.bicvprogreso}`; en GitHub borrar el environment `cvp-prod`.

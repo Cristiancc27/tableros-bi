@@ -5,15 +5,36 @@
 # Hace copia del HTML anterior y, si el tablero no responde bien tras el cambio, restaura.
 set -Eeuo pipefail
 
-readonly WEB_DIR="/srv/tomcat/webapps/tablero-cvp"
-readonly BACKUP_DIR="/srv/tableros-bi/cvp/backup"
-readonly USUARIO="tableros"
-readonly URL_PRUEBA="http://localhost/tablero-cvp/Tablero_CVP.html"
+# Valores por defecto = servidor de desarrollo. Cada servidor puede sobreescribirlos en /etc/tableros-bi/deploy.conf (lo escribe
+# migrar-a-srv.sh). Solo se aceptan estas 4 claves, con formato validado, y el archivo debe ser de root y no escribible por otros.
+WEB_DIR="/srv/tomcat/webapps/tablero-cvp"
+BACKUP_DIR="/srv/tableros-bi/cvp/backup"
+USUARIO="tableros"
+URL_PRUEBA="http://localhost/tablero-cvp/Tablero_CVP.html"
+readonly CONF="/etc/tableros-bi/deploy.conf"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Este script debe ejecutarse con sudo." >&2
   exit 1
 fi
+if [[ -f "$CONF" ]]; then
+  if [[ "$(stat -c %U "$CONF")" != "root" || -n "$(find "$CONF" -perm /022)" ]]; then
+    echo "$CONF debe ser de root y no escribible por otros." >&2
+    exit 1
+  fi
+  while IFS='=' read -r clave valor; do
+    case "$clave" in
+      WEB_DIR|BACKUP_DIR) [[ "$valor" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
+      USUARIO) [[ "$valor" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
+      URL_PRUEBA) [[ "$valor" =~ ^http://localhost(:[0-9]+)?/[A-Za-z0-9._/-]+$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
+      ""|\#*) continue ;;
+      *) echo "Clave no permitida en $CONF: $clave" >&2; exit 1 ;;
+    esac
+    printf -v "$clave" '%s' "$valor"
+  done < "$CONF"
+fi
+readonly WEB_DIR BACKUP_DIR USUARIO URL_PRUEBA
+
 if [[ "$#" -ne 1 ]]; then
   echo "Uso: $0 /tmp/tableros-bi-cvp-<run>-<intento>.tar.gz" >&2
   exit 1
@@ -56,7 +77,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 [[ -f "$WEB_DIR/WEB-INF/web.xml" ]] && cp -a "$WEB_DIR/WEB-INF/web.xml" "$BACKUP_DIR/web.xml.$STAMP"
 # Solo se conservan los 10 respaldos más recientes de cada tipo.
 for tipo in Tablero_CVP.html web.xml; do
-  ls -1t "$BACKUP_DIR/$tipo."* 2>/dev/null | tail -n +11 | xargs -r rm -f
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name "$tipo.*" -printf '%T@ %p\n' | sort -rn | tail -n +11 | cut -d' ' -f2- | xargs -r rm -f
 done
 
 # El web.xml solo se reemplaza si cambió: reemplazarlo hace que Tomcat recargue el contexto.

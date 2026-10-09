@@ -15,6 +15,7 @@ push a cvp ──> runner de la organización ──ssh (cicd-deploy)──> sud
 | Cron | `/etc/cron.d/tableros-bi-cvp` (6:00, como `tableros`) | root |
 | Script de despliegue | `/usr/local/sbin/deploy-tableros-bi` | root |
 | Permiso sudo | `/etc/sudoers.d/cicd-deploy-tableros-bi` | root |
+| Rutas propias del servidor (`WEB_DIR`, `URL_PRUEBA`) | `/etc/tableros-bi/deploy.conf` (lo escribe `migrar-a-srv.sh`; si no existe, valores de desarrollo) | root |
 
 ## Instalación (una vez, con sudo; probada en un contenedor Ubuntu 16.04)
 Desde la Mac, en la carpeta de este repo:
@@ -44,3 +45,15 @@ Desde la Mac, en la carpeta de este repo:
 - HTML: respaldos en `/srv/tableros-bi/cvp/backup/` (10 más recientes); el script restaura solo si el tablero no responde bien tras el cambio.
 - Quitar el despliegue automático: poner `DEPLOY_CVP_AUTO` en `false` o borrar la variable.
 - Quitar el permiso: `sudo rm /etc/sudoers.d/cicd-deploy-tableros-bi /usr/local/sbin/deploy-tableros-bi`.
+
+## Un `yml` y un environment por ambiente (convención del equipo)
+| Ambiente | Workflow | Environment | Disparo |
+|---|---|---|---|
+| Desarrollo | `deploy-develop.yml` | `interkont-develop` (limitado a la rama `cvp`) | manual, y por push si `DEPLOY_CVP_AUTO=true` |
+| Producción | `deploy-prod.yml` | `cvp-prod` (revisor obligatorio, rama `cvp`) | solo manual |
+
+Cada environment lleva el secreto `DEPLOY_SSH_PRIVATE_KEY` y las variables `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS` (y opcionales). Producción: ver `DESPLIEGUE_PRODUCCION.md` (usuario `cicd-tableros`, par de llaves propio, `migrar-a-srv.sh` con `--web-dir` y `--url-prueba` de producción).
+
+## Protecciones del repo
+- Rama `cvp`: pull request con 1 aprobación; sin force-push ni borrado. Los admins pueden saltarla (no se activó *Do not allow bypassing*).
+- `interkont-develop` solo admite la rama `cvp`.
