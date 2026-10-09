@@ -121,7 +121,7 @@ def a_json(o):
     if isinstance(o, dt.datetime):
         if o.tzinfo is not None:
             o = o.astimezone(BOGOTA).replace(tzinfo=None)
-        return o.isoformat(timespec="seconds")
+        return o.replace(microsecond=0).isoformat()  # sin timespec: compatible con Python 3.5
     if isinstance(o, dt.date):
         return o.isoformat() + "T00:00:00"
     if isinstance(o, decimal.Decimal):
