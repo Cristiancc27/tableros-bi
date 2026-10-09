@@ -437,6 +437,7 @@ const NOTE='Etapa temprana · aún sin registros';
 function pagePortada(c){
   const aprob=cntState(c,'Estructuración aprobada'), asig=cntState(c,'Asignado'), ejec=cntState(c,'En ejecución'),
         term=cntState(c,'Ejecutado Entregado'), cert=cntState(c,'Ejecutado con certificado de existencia');
+  const asigAcum=asig+ejec+term+cert; // KPI acumulado: asignado + en ejecución + terminados + con certificado (la barra de avance usa los estados excluyentes)
   const m=c.meta||1;
   const seg=[['Estructuración aprobada',aprob,'#DC2626'],['Asignado',asig,'#B91C1C'],['En ejecución',ejec,'#991B1B'],['Mejoramientos terminados',term,'#7F1D1D'],['Con certificado',cert,'#0F172A']];
   const used=seg.reduce((a,s)=>a+s[1],0);
@@ -448,7 +449,7 @@ function pagePortada(c){
   </section>
   <section class="grid g5 mt">
     ${kpi({lb:'Estructuraciones aprobadas',v:aprob,nt:aprob?'':NOTE,c:'#DC2626',pct:aprob/m,pcl:fPct(aprob/m)+' de la meta ('+fInt(m)+')'})}
-    ${kpi({lb:'Hogares asignados',v:asig,nt:asig?'':NOTE,c:'#B91C1C',pct:asig/m,pcl:fPct(asig/m)+' de la meta'})}
+    ${kpi({lb:'Hogares asignados',v:asigAcum,nt:asigAcum?'Acumulado: asignado + en ejecución + terminados + con certificado':NOTE,c:'#B91C1C',pct:asigAcum/m,pcl:fPct(asigAcum/m)+' de la meta'})}
     ${kpi({lb:'En ejecución',v:ejec,nt:ejec?'':NOTE,c:'#991B1B',pct:ejec/m,pcl:fPct(ejec/m)+' de la meta'})}
     ${kpi({lb:'Mejoramientos terminados',v:term,nt:term?'':NOTE,c:'#7F1D1D',pct:term/m,pcl:fPct(term/m)+' de la meta'})}
     ${kpi({lb:'Con certificado de existencia',v:cert,nt:cert?'':NOTE,c:'#0F172A',pct:cert/m,pcl:fPct(cert/m)+' de la meta'})}
