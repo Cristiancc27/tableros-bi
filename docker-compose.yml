@@ -1,0 +1,70 @@
+# Tablero CVProgreso: prueba en local.
+#   docker compose --profile bd-prueba up --build     (con la base de mentira incluida)
+#   docker compose up --build                         (contra la base que indique su .env)
+# Abrir http://localhost:8080
+# Pasos completos en README_docker.md.
+
+name: tablero-cvp
+
+services:
+  # Lee la base (solo lectura) y escribe data.js en el volumen "web".
+  actualizador:
+    build: .
+    image: tablero-cvp-actualizador:local
+    env_file: .env
+    environment:
+      # Gana sobre cualquier CVP_WEB_DIR que tenga el .env: debe ser el volumen que lee nginx.
+      CVP_WEB_DIR: /web
+    volumes:
+      - web:/web
+    extra_hosts:
+      # Permite llegar a una base que corre en la maquina del desarrollador (modo B del .env).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      bd-prueba:
+        condition: service_healthy
+        required: false   # solo se espera si se activo el perfil bd-prueba
+
+  # Servidor estatico: Tablero_CVP.html (de esta carpeta) y data.js (del volumen).
+  # SIN login: ver advertencia en README_docker.md antes de llevarlo a un servidor.
+  web:
+    image: nginx:alpine
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    ports:
+      - "127.0.0.1:8080:80"   # solo la propia maquina; no queda expuesto a la red
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./Tablero_CVP.html:/usr/share/nginx/html/Tablero_CVP.html:ro
+      - web:/usr/share/nginx/web:ro
+    depends_on:
+      - actualizador
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # OPCIONAL: PostgreSQL con datos inventados para probar sin tocar la base real.
+  # Solo arranca con:  docker compose --profile bd-prueba up --build
+  bd-prueba:
+    profiles: ["bd-prueba"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: viviendacvp
+      POSTGRES_USER: prueba_admin
+      POSTGRES_PASSWORD: admin_de_prueba_no_real
+    volumes:
+      - ./prueba/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U prueba_admin -d viviendacvp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  web:

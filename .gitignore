@@ -1,0 +1,12 @@
+# Credenciales y propiedades reales: nunca al repositorio
+.env
+.env.*
+!.env.example
+!.env.docker.example
+
+# Salida generada por el actualizador (datos operativos)
+data.js
+data.js.tmp
+
+__pycache__/
+*.pyc

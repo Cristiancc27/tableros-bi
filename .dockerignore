@@ -1,0 +1,7 @@
+# Lista blanca: al construir la imagen solo entran estos archivos.
+# Nada de .env, .html, data.js, prueba/, nginx/ ni .git dentro de la imagen.
+*
+!requirements.txt
+!actualizar_datos.py
+!cvp_config.py
+!entrypoint.sh
