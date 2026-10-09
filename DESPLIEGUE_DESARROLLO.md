@@ -1,11 +1,11 @@
 # Despliegue del tablero CVP en el servidor de desarrollo (manual, sin sudo)
 
-Servidor: `Interkont-Desarrollo` (Ubuntu 16.04, Python 3.5.2, sin Docker). Todo vive en la carpeta del usuario y en `/srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp/` (ruta que ya sirve el Tomcat/nginx para los Web Components). No se reinicia ningún servicio ni se instala nada en el sistema.
+Servidor: `Interkont-Desarrollo` (Ubuntu 16.04, Python 3.5.2, sin Docker). Todo vive en la carpeta del usuario y en `/srv/tomcat/webapps/tablero-cvp/` (carpeta propia, separada de los Web Components). No se reinicia ningún servicio ni se instala nada en el sistema.
 
-URL final del iframe: `/cobracvp-webcomponents/tablero-cvp/Tablero_CVP.html`
+URL final del iframe: `/tablero-cvp/Tablero_CVP.html`
 
 ## 0. Revisión previa (solo lectura)
-    ssh Interkont-Desarrollo 'df -h / | tail -1; ls -ld /srv/tomcat/webapps/cobracvp-webcomponents; curl -s -o /dev/null -w "wc http %{http_code}\n" http://localhost/cobracvp-webcomponents/'
+    ssh Interkont-Desarrollo 'df -h / | tail -1; ls -ld /srv/tomcat/webapps'
 
 ## 1. Copiar los archivos (desde la Mac, en la carpeta de este repo)
     ssh Interkont-Desarrollo 'mkdir -p ~/tableros-bi/app ~/tableros-bi/lib'
@@ -47,20 +47,20 @@ Conéctate como `cobra` y pon una clave nueva (no la compartas en chats):
 Debe imprimir 1038 hogares, 4 lotes y `Listo: /tmp/tablero-prueba/data.js`.
 
 ## 6. Publicar
-    DEST=/srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp
+    DEST=/srv/tomcat/webapps/tablero-cvp
     mkdir -p $DEST
     cp /tmp/tablero-prueba/data.js $DEST/data.js
     printf 'window.CVP_CONFIG = {allowSample: false};\n' > $DEST/config.js
 (El HTML se copia desde la Mac:)
-    scp Tablero_CVP.html Interkont-Desarrollo:/srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp/
-Comprobar: `http://13.59.62.87/cobracvp-webcomponents/tablero-cvp/Tablero_CVP.html`
+    scp Tablero_CVP.html Interkont-Desarrollo:/srv/tomcat/webapps/tablero-cvp/
+Comprobar: `http://13.59.62.87/tablero-cvp/Tablero_CVP.html`
 
 ## 7. Actualizar los datos (cuando haga falta)
-    cd ~/tableros-bi/app && CVP_WEB_DIR=/srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp PYTHONIOENCODING=utf-8 PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
+    cd ~/tableros-bi/app && CVP_WEB_DIR=/srv/tomcat/webapps/tablero-cvp PYTHONIOENCODING=utf-8 PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
 El script reemplaza `data.js` de forma atómica y no lo toca si la consulta de hogares viene vacía.
 
 ## Rollback (todo es reversible)
-    ssh Interkont-Desarrollo 'rm -rf ~/tableros-bi /tmp/tablero-prueba /srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp'
+    ssh Interkont-Desarrollo 'rm -rf ~/tableros-bi /tmp/tablero-prueba /srv/tomcat/webapps/tablero-cvp'
     -- en la base: DROP OWNED BY tablero_ro; DROP ROLE tablero_ro;
 
 > Nota: el servidor no define LANG; sin `PYTHONIOENCODING=utf-8` Python 3.5 falla al imprimir tildes (UnicodeEncodeError).
