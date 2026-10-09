@@ -55,6 +55,12 @@ Debe imprimir 1038 hogares, 4 lotes y `Listo: /tmp/tablero-prueba/data.js`.
     scp Tablero_CVP.html Interkont-Desarrollo:/srv/tomcat/webapps/tablero-cvp/
 Comprobar: `http://13.59.62.87/tablero-cvp/Tablero_CVP.html`
 
+## 6b. Permitir el iframe (una vez)
+El Tomcat activa `httpHeaderSecurity` y responde `X-Frame-Options: DENY`; el navegador no muestra el tablero dentro del JSF. Se redeclara el filtro solo para este contexto con `SAMEORIGIN` (`deploy/WEB-INF/web.xml`):
+    ssh Interkont-Desarrollo 'mkdir -p /srv/tomcat/webapps/tablero-cvp/WEB-INF'
+    scp deploy/WEB-INF/web.xml Interkont-Desarrollo:/srv/tomcat/webapps/tablero-cvp/WEB-INF/
+Tomcat recarga el contexto solo (autoDeploy). Comprobar: `curl -sI http://localhost/tablero-cvp/data.js | grep -i frame` debe decir SAMEORIGIN. Revertir: borrar `WEB-INF`.
+
 ## 7. Actualizar los datos (cuando haga falta)
     cd ~/tableros-bi/app && CVP_WEB_DIR=/srv/tomcat/webapps/tablero-cvp PYTHONIOENCODING=utf-8 PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
 El script reemplaza `data.js` de forma atómica y no lo toca si la consulta de hogares viene vacía.
