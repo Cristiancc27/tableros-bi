@@ -10,3 +10,6 @@ data.js.tmp
 
 __pycache__/
 *.pyc
+
+# Dump de datos operativos (CHIP, barrio): nunca se versiona
+*.dump
