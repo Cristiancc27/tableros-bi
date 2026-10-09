@@ -26,10 +26,11 @@ jobs:
     environment: interkont-develop
 
     env:
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      # Host, usuario y known_hosts son variables del environment (no son secretos). Solo la llave privada es un secreto.
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
       DEPLOY_SCRIPT: ${{ vars.DEPLOY_SCRIPT || '/usr/local/sbin/deploy-tableros-bi' }}
       DEPLOY_KEY_FINGERPRINT: ${{ vars.DEPLOY_KEY_FINGERPRINT }}
@@ -59,10 +60,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          : "${DEPLOY_HOST:?Falta el secreto DEPLOY_HOST en el environment interkont-develop}"
-          : "${DEPLOY_USER:?Falta el secreto DEPLOY_USER}"
+          : "${DEPLOY_HOST:?Falta DEPLOY_HOST (variable del environment interkont-develop)}"
+          : "${DEPLOY_USER:?Falta DEPLOY_USER (variable del environment)}"
           : "${DEPLOY_SSH_PRIVATE_KEY:?Falta el secreto DEPLOY_SSH_PRIVATE_KEY}"
-          : "${DEPLOY_KNOWN_HOSTS:?Falta el secreto DEPLOY_KNOWN_HOSTS}"
+          : "${DEPLOY_KNOWN_HOSTS:?Falta DEPLOY_KNOWN_HOSTS (variable del environment)}"
           : "${DEPLOY_SCRIPT:?Falta la variable DEPLOY_SCRIPT}"
 
           if [[ ! "$DEPLOY_PORT" =~ ^[0-9]+$ ]]; then

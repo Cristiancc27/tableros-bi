@@ -31,7 +31,7 @@ Desde la Mac, en la carpeta de este repo:
        ssh -t Interkont-Desarrollo 'sudo install -o root -g root -m 0755 /tmp/deploy-tableros-bi /usr/local/sbin/deploy-tableros-bi'
        ssh -t Interkont-Desarrollo 'sudo visudo -cf /tmp/sudoers-cicd-deploy-tableros-bi && sudo install -o root -g root -m 0440 /tmp/sudoers-cicd-deploy-tableros-bi /etc/sudoers.d/cicd-deploy-tableros-bi && sudo visudo -c'
 
-3. En GitHub (`tableros-bi` → Settings → Environments → `interkont-develop`): secretos `DEPLOY_HOST`, `DEPLOY_USER` (= `cicd-deploy`), `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_KNOWN_HOSTS`; opcionales (variables): `DEPLOY_PORT`, `DEPLOY_SCRIPT`, `DEPLOY_KEY_FINGERPRINT`. Son los mismos valores que usa `solicitudes-ikont` para el mismo servidor (los administra Felix).
+3. En GitHub (`tableros-bi` → Settings → Environments → `interkont-develop`): **secreto**: `DEPLOY_SSH_PRIVATE_KEY`; **variables**: `DEPLOY_HOST`, `DEPLOY_USER` (= `cicd-deploy`), `DEPLOY_KNOWN_HOSTS`; opcionales (variables): `DEPLOY_PORT`, `DEPLOY_SCRIPT`, `DEPLOY_KEY_FINGERPRINT`. Son los mismos valores que usa `solicitudes-ikont` para el mismo servidor (los administra Felix).
 4. Probar a mano: Actions → *Desplegar tablero CVP en desarrollo* → *Run workflow* (rama `cvp`).
 5. Cuando funcione, activar el despliegue automático por push: variable de repositorio `DEPLOY_CVP_AUTO` = `true`.
 
