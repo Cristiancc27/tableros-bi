@@ -43,7 +43,7 @@ Conéctate como `cobra` y pon una clave nueva (no la compartas en chats):
 
 ## 5. Primera corrida en una carpeta temporal (no toca webapps)
     mkdir -p /tmp/tablero-prueba
-    cd ~/tableros-bi/app && CVP_WEB_DIR=/tmp/tablero-prueba PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
+    cd ~/tableros-bi/app && CVP_WEB_DIR=/tmp/tablero-prueba PYTHONIOENCODING=utf-8 PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
 Debe imprimir 1038 hogares, 4 lotes y `Listo: /tmp/tablero-prueba/data.js`.
 
 ## 6. Publicar
@@ -56,9 +56,11 @@ Debe imprimir 1038 hogares, 4 lotes y `Listo: /tmp/tablero-prueba/data.js`.
 Comprobar: `http://13.59.62.87/cobracvp-webcomponents/tablero-cvp/Tablero_CVP.html`
 
 ## 7. Actualizar los datos (cuando haga falta)
-    cd ~/tableros-bi/app && CVP_WEB_DIR=/srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
+    cd ~/tableros-bi/app && CVP_WEB_DIR=/srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp PYTHONIOENCODING=utf-8 PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
 El script reemplaza `data.js` de forma atómica y no lo toca si la consulta de hogares viene vacía.
 
 ## Rollback (todo es reversible)
     ssh Interkont-Desarrollo 'rm -rf ~/tableros-bi /tmp/tablero-prueba /srv/tomcat/webapps/cobracvp-webcomponents/tablero-cvp'
     -- en la base: DROP OWNED BY tablero_ro; DROP ROLE tablero_ro;
+
+> Nota: el servidor no define LANG; sin `PYTHONIOENCODING=utf-8` Python 3.5 falla al imprimir tildes (UnicodeEncodeError).
