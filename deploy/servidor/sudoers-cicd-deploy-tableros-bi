@@ -1,0 +1,3 @@
+# Se instala en /etc/sudoers.d/cicd-deploy-tableros-bi (root:root, 0440). SIN puntos en el nombre del archivo.
+# cicd-deploy solo puede ejecutar este script como root; el propio script valida el paquete que recibe.
+cicd-deploy ALL=(root) NOPASSWD: /usr/local/sbin/deploy-tableros-bi

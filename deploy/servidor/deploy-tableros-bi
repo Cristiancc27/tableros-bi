@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Despliega el HTML del tablero CVP en el servidor de desarrollo. Se instala en /usr/local/sbin/deploy-tableros-bi (root:root, 0755)
+# y lo invoca GitHub Actions por SSH como cicd-deploy:   sudo -n /usr/local/sbin/deploy-tableros-bi /tmp/tableros-bi-cvp-<run>-<intento>.tar.gz
+# Solo acepta un .tar.gz con EXACTAMENTE estos archivos: Tablero_CVP.html y WEB-INF/web.xml. No toca data.js ni config.js.
+# Hace copia del HTML anterior y, si el tablero no responde bien tras el cambio, restaura.
+set -Eeuo pipefail
+
+readonly WEB_DIR="/srv/tomcat/webapps/tablero-cvp"
+readonly BACKUP_DIR="/srv/tableros-bi/cvp/backup"
+readonly USUARIO="tableros"
+readonly URL_PRUEBA="http://localhost/tablero-cvp/Tablero_CVP.html"
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Este script debe ejecutarse con sudo." >&2
+  exit 1
+fi
+if [[ "$#" -ne 1 ]]; then
+  echo "Uso: $0 /tmp/tableros-bi-cvp-<run>-<intento>.tar.gz" >&2
+  exit 1
+fi
+
+PAQUETE="$1"
+if [[ ! "$PAQUETE" =~ ^/tmp/tableros-bi-cvp-[0-9]+-[0-9]+\.tar\.gz$ ]]; then
+  echo "El paquete debe estar en /tmp y llamarse tableros-bi-cvp-<run>-<intento>.tar.gz" >&2
+  exit 1
+fi
+if [[ ! -f "$PAQUETE" || -L "$PAQUETE" || ! -s "$PAQUETE" ]]; then
+  echo "No existe un paquete regular y no vacío: $PAQUETE" >&2
+  exit 1
+fi
+id "$USUARIO" >/dev/null 2>&1 || { echo "Falta el usuario $USUARIO (ejecutar migrar-a-srv.sh)" >&2; exit 1; }
+[[ -d "$WEB_DIR" ]] || { echo "Falta $WEB_DIR" >&2; exit 1; }
+
+# Contenido permitido: solo estos dos archivos, sin rutas absolutas ni ..
+mapfile -t ENTRADAS < <(tar -tzf "$PAQUETE")
+if [[ "${#ENTRADAS[@]}" -eq 0 ]]; then
+  echo "Paquete vacío." >&2
+  exit 1
+fi
+for e in "${ENTRADAS[@]}"; do
+  case "$e" in
+    Tablero_CVP.html|WEB-INF/web.xml) ;;
+    *) echo "Entrada no permitida en el paquete: $e" >&2; exit 1 ;;
+  esac
+done
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+tar -xzf "$PAQUETE" -C "$TMP" --no-same-owner --no-same-permissions
+[[ -s "$TMP/Tablero_CVP.html" ]] || { echo "Falta Tablero_CVP.html en el paquete." >&2; exit 1; }
+grep -q "<html" "$TMP/Tablero_CVP.html" || { echo "Tablero_CVP.html no parece un HTML." >&2; exit 1; }
+
+mkdir -p "$BACKUP_DIR"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+[[ -f "$WEB_DIR/Tablero_CVP.html" ]] && cp -a "$WEB_DIR/Tablero_CVP.html" "$BACKUP_DIR/Tablero_CVP.html.$STAMP"
+[[ -f "$WEB_DIR/WEB-INF/web.xml" ]] && cp -a "$WEB_DIR/WEB-INF/web.xml" "$BACKUP_DIR/web.xml.$STAMP"
+# Solo se conservan los 10 respaldos más recientes de cada tipo.
+for tipo in Tablero_CVP.html web.xml; do
+  ls -1t "$BACKUP_DIR/$tipo."* 2>/dev/null | tail -n +11 | xargs -r rm -f
+done
+
+# El web.xml solo se reemplaza si cambió: reemplazarlo hace que Tomcat recargue el contexto.
+CAMBIO_WEBXML="no"
+if [[ -f "$TMP/WEB-INF/web.xml" ]]; then
+  if ! cmp -s "$TMP/WEB-INF/web.xml" "$WEB_DIR/WEB-INF/web.xml" 2>/dev/null; then
+    mkdir -p "$WEB_DIR/WEB-INF"
+    chown "$USUARIO:$USUARIO" "$WEB_DIR/WEB-INF"
+    install -o "$USUARIO" -g "$USUARIO" -m 0644 "$TMP/WEB-INF/web.xml" "$WEB_DIR/WEB-INF/web.xml.new"
+    mv -f "$WEB_DIR/WEB-INF/web.xml.new" "$WEB_DIR/WEB-INF/web.xml"
+    CAMBIO_WEBXML="si"
+  fi
+fi
+
+install -o "$USUARIO" -g "$USUARIO" -m 0644 "$TMP/Tablero_CVP.html" "$WEB_DIR/Tablero_CVP.html.new"
+mv -f "$WEB_DIR/Tablero_CVP.html.new" "$WEB_DIR/Tablero_CVP.html"
+
+restaurar() {
+  echo "El tablero no respondió bien tras el despliegue. Restaurando el HTML anterior..." >&2
+  if [[ -f "$BACKUP_DIR/Tablero_CVP.html.$STAMP" ]]; then
+    cp -a "$BACKUP_DIR/Tablero_CVP.html.$STAMP" "$WEB_DIR/Tablero_CVP.html"
+  fi
+  if [[ "$CAMBIO_WEBXML" == "si" && -f "$BACKUP_DIR/web.xml.$STAMP" ]]; then
+    cp -a "$BACKUP_DIR/web.xml.$STAMP" "$WEB_DIR/WEB-INF/web.xml"
+  fi
+}
+
+# Verificación: 200 y X-Frame-Options SAMEORIGIN (si el web.xml cambió, Tomcat tarda unos segundos en recargar el contexto).
+ESPERA=30; [[ "$CAMBIO_WEBXML" == "si" ]] && ESPERA=60
+OK="no"
+for ((i=0; i<ESPERA; i+=3)); do
+  CABECERAS="$(curl -s -D - -o /dev/null --max-time 5 "$URL_PRUEBA" || true)"
+  if grep -q "^HTTP/[0-9.]* 200" <<<"$CABECERAS" && grep -qi "^X-Frame-Options: SAMEORIGIN" <<<"$CABECERAS"; then
+    OK="si"; break
+  fi
+  sleep 3
+done
+if [[ "$OK" != "si" ]]; then
+  restaurar
+  exit 1
+fi
+
+rm -f "$PAQUETE"
+echo "Despliegue exitoso: Tablero_CVP.html actualizado (web.xml cambió: $CAMBIO_WEBXML). Respaldo: $BACKUP_DIR/Tablero_CVP.html.$STAMP"
