@@ -93,13 +93,11 @@ Llave solo para este repo (en la Mac; la privada nunca se guarda fuera de GitHub
 
 ## 7. (reservado)
 
-## 8. 🔒 nginx: ruta `/tablero-cvp`
-Tomcat sirve el contexto en `localhost:8095/tablero-cvp`, pero nginx solo enruta los contextos que tienen `location`. **Duplicar el bloque `location /cobracvp-webcomponents`** de `/etc/nginx/sites-enabled/sgi.conf` cambiando el nombre:
-    ssh -t Interkont-Produccion 'sudo cp /etc/nginx/sites-available/sgi.conf /etc/nginx/sites-available/sgi.conf.bak-$(date +%Y%m%d-%H%M)'
-    # editar sgi.conf: copiar el bloque de /cobracvp-webcomponents y dejarlo como /tablero-cvp (proxy_pass http://localhost:8095/tablero-cvp)
-    ssh -t Interkont-Produccion 'sudo nginx -t'
-    ssh -t Interkont-Produccion 'sudo systemctl reload nginx'
-No recargar si `nginx -t` falla. Revertir: restaurar el `.bak` y recargar.
+## 8. 🔒 nginx: ruta `/tablero-cvp` (`nginx-agregar-tablero.sh`)
+Tomcat sirve el contexto en `localhost:8095/tablero-cvp`, pero nginx solo enruta los contextos que tienen `location`. El script **duplica el bloque `location /cobracvp-webcomponents`** de `sgi.conf` como `/tablero-cvp` (con compresión gzip, porque `data.js` pesa ~1,5 MB), con estas garantías (probadas con nginx 1.18 en Ubuntu 20.04 sobre una copia del archivo real): `nginx -t` antes y después, respaldo con fecha, comprobación de que `/tablero-cvp/data.js` responda 200 y de que `/sgi/` y `/cobracvp-webcomponents/` respondan igual que antes; si algo falla restaura el original. Es idempotente.
+    scp /Users/wuilly/Work/Interkont/CVP/tableros-bi/deploy/servidor/nginx-agregar-tablero.sh Interkont-Produccion:/tmp/
+    ssh -t Interkont-Produccion 'sudo bash /tmp/nginx-agregar-tablero.sh'
+**Este paso hace público el tablero** (`https://cvprogreso.cvp.gov.co/tablero-cvp/…`); `data.js` no tiene login. Revertir: `sudo cp -a /etc/nginx/sites-available/sgi.conf.bak-<fecha> /etc/nginx/sites-available/sgi.conf && sudo nginx -t && sudo systemctl reload nginx`.
 
 ## 9. GitHub: environment `cvp-prod` y primer despliegue (admin del repo)
 Convención del equipo (Felix): **un `yml` por ambiente y un environment por ambiente**. Producción usa `.github/workflows/deploy-prod.yml` (solo manual) y el environment `cvp-prod`.
