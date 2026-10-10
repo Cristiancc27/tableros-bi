@@ -2,6 +2,11 @@ name: Desplegar tablero CVP en producción
 
 on:
   workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Escribe DESPLEGAR-PRODUCCION para confirmar el despliegue en producción'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,8 +18,9 @@ concurrency:
 jobs:
   deploy:
     name: Desplegar en cvp-prod
-    # Producción: SOLO manual (nunca por push). El environment cvp-prod debe tener revisores obligatorios y limitarse a la rama cvp.
-    if: ${{ github.ref == 'refs/heads/cvp' }}
+    # Producción: SOLO manual (nunca por push) y con confirmación escrita. El plan de la organización (Team) no permite revisores
+    # obligatorios en environments de repos privados; el environment cvp-prod se limita a la rama cvp y esta confirmación evita ejecuciones accidentales.
+    if: ${{ github.ref == 'refs/heads/cvp' && inputs.confirmar == 'DESPLEGAR-PRODUCCION' }}
     runs-on: [self-hosted, linux, x64, deploy]
     timeout-minutes: 10
     environment: cvp-prod

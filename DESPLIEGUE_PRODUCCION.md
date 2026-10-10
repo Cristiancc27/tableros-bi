@@ -103,10 +103,8 @@ No recargar si `nginx -t` falla. Revertir: restaurar el `.bak` y recargar.
 
 ## 9. GitHub: environment `cvp-prod` y primer despliegue (admin del repo)
 Convención del equipo (Felix): **un `yml` por ambiente y un environment por ambiente**. Producción usa `.github/workflows/deploy-prod.yml` (solo manual) y el environment `cvp-prod`.
-Environment con revisor obligatorio y limitado a la rama `cvp` (reemplazar `<id>` con `gh api users/<login> --jq .id`):
-    gh api -X PUT repos/gitinterkont/tableros-bi/environments/cvp-prod --input - <<'EOF3'
-    {"reviewers":[{"type":"User","id":<id>}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
-    EOF3
+Environment limitado a la rama `cvp`. **El plan Team de la organización NO admite revisores obligatorios en environments de repos privados** (GitHub responde 422): la salvaguarda es la confirmación escrita del workflow (`confirmar = DESPLEGAR-PRODUCCION`) y la protección de la rama `cvp`.
+    gh api -X PUT repos/gitinterkont/tableros-bi/environments/cvp-prod -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
     gh api -X POST repos/gitinterkont/tableros-bi/environments/cvp-prod/deployment-branch-policies -f name=cvp
 Variables y secreto (la llave privada se borra de la Mac al terminar):
     gh variable set DEPLOY_HOST --env cvp-prod --repo gitinterkont/tableros-bi --body 3.21.77.133
@@ -115,7 +113,7 @@ Variables y secreto (la llave privada se borra de la Mac al terminar):
     ssh-keygen -lf /tmp/cvp_prod_key.pub | awk '{print $2}' | gh variable set DEPLOY_KEY_FINGERPRINT --env cvp-prod --repo gitinterkont/tableros-bi
     gh secret set DEPLOY_SSH_PRIVATE_KEY --env cvp-prod --repo gitinterkont/tableros-bi < /tmp/cvp_prod_key
     rm -P /tmp/cvp_prod_key /tmp/cvp_prod_key.pub
-Primer despliegue: Actions → *Desplegar tablero CVP en producción* → *Run workflow* (rama `cvp`; el revisor lo aprueba). Si la conexión no responde, revisar el *security group* de AWS de producción: debe permitir SSH desde la IP del runner (`ip-172-31-38-67`).
+Primer despliegue: Actions → *Desplegar tablero CVP en producción* → *Run workflow* (rama `cvp`; escribir `DESPLEGAR-PRODUCCION` en la confirmación). Si la conexión no responde, revisar el *security group* de AWS de producción: debe permitir SSH desde la IP del runner (`ip-172-31-38-67`).
 
 ## 10. Menú del JSF (cobra-housing)
 En `pom.xml`, perfil `produccion`: `<url.tablerocvp>/tablero-cvp/Tablero_CVP.html</url.tablerocvp>` (hoy `${url.bicvprogreso}` = Power BI). Desplegar el WAR de producción con Jenkins **después** de los pasos anteriores. Preproducción queda para el final y necesita su propia carpeta y actualizador. Reversión del menú: volver `url.tablerocvp` a `${url.bicvprogreso}` y redesplegar.
