@@ -45,14 +45,13 @@ jobs:
           set -euo pipefail
           test -s Tablero_CVP.html || { echo "Falta Tablero_CVP.html" >&2; exit 1; }
           grep -q "<html" Tablero_CVP.html || { echo "Tablero_CVP.html no parece un HTML" >&2; exit 1; }
-          test -s deploy/WEB-INF/web.xml || { echo "Falta deploy/WEB-INF/web.xml" >&2; exit 1; }
 
+          # En producción nginx sirve el HTML desde disco con la sesión del aplicativo: no hay contexto de Tomcat, así que no se envía web.xml.
           STAGE="$RUNNER_TEMP/stage"
           rm -rf "$STAGE"
-          mkdir -p "$STAGE/WEB-INF"
+          mkdir -p "$STAGE"
           cp Tablero_CVP.html "$STAGE/Tablero_CVP.html"
-          cp deploy/WEB-INF/web.xml "$STAGE/WEB-INF/web.xml"
-          tar -C "$STAGE" -czf "$RUNNER_TEMP/tableros-bi-cvp.tar.gz" Tablero_CVP.html WEB-INF/web.xml
+          tar -C "$STAGE" -czf "$RUNNER_TEMP/tableros-bi-cvp.tar.gz" Tablero_CVP.html
           echo "Paquete: $(tar -tzf "$RUNNER_TEMP/tableros-bi-cvp.tar.gz" | tr '\n' ' ')"
 
       - name: Desplegar por SSH

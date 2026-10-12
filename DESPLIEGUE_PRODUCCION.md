@@ -15,6 +15,35 @@
 | **Pagos** | `public.desembolso` tiene **0 filas** → *Ejecución Presupuestal* mostrará pagos en $0 y la advertencia amarilla del HTML |
 | Usuario de despliegue | no existe `cicd-deploy` ni scripts `deploy-*` (Actions requeriría montarlo) |
 
+## Plan vigente para producción: tablero protegido con la sesión del aplicativo (opción E, decidida con Daniel el 2026-10-10)
+Desarrollo NO cambia (Tomcat atiende el puerto 80 directo, sin nginx delante: sigue con la carpeta de Tomcat y `web.xml`). Solo producción.
+
+**Cómo funciona**
+- El tablero (HTML, `config.js`, `data.js`) vive **fuera de Tomcat**, en `/srv/tableros-bi/cvp/web/`. Tomcat no lo publica por ningún puerto.
+- nginx lo entrega desde disco bajo **`/sgi/tablero-cvp/`** y exige sesión para TODO (`auth_request` → servlet `/sgi/tablero-auth` del JSF, que responde 204 si hay sesión con el permiso `btnreportes`, 401 sin sesión, 403 sin permiso). La cookie de sesión del aplicativo lleva `Path=/sgi`, por eso el tablero va bajo `/sgi/` (con otra ruta el navegador no la enviaría).
+- El menú del JSF apunta a la ruta relativa `../tablero-cvp/Tablero_CVP.html` (sirve igual en `/sgi` y `/cobracvp-wv`).
+- Cambios del HTML → GitHub Actions (`deploy-prod.yml`, manual) sin tocar el aplicativo. Datos → cron. El WAR solo se redespliega si cambia la regla de acceso o la ruta.
+
+**Estado de partida (2026-10-12)**: usuario `tableros`, `/srv/tableros-bi/cvp`, `cicd-tableros`, script de despliegue, `cvp-prod` en GitHub: hechos. `data.js` borrado y cron desactivado (había quedado accesible por el 8095, que ya está cerrado). Daniel dejó un `location /tablero-cvp` (proxy al Tomcat) para el HTML, sin datos.
+
+**Orden (nunca hay un momento con datos sin protección)**
+1. **WAR con el servlet** (Jenkins `produccion`, rama `feature/tablero-cvp-iframe`). Sin cambiar aún `url.tablerocvp`: no hay efecto visible. Comprobar: `curl -s -o /dev/null -w "%{http_code}\n" https://cvprogreso.cvp.gov.co/sgi/tablero-auth` → **401** (no 302 ni 404).
+2. **Copiar los scripts actualizados y mover la carpeta de datos** (re-ejecuta la migración con la carpeta nueva; reactiva el cron apuntando ahí y escribe `deploy.conf` sin URL de prueba):
+       scp deploy/servidor/{migrar-a-srv.sh,deploy-tableros-bi,nginx-agregar-tablero.sh} Interkont-Produccion:/tmp/
+       sudo install -o root -g root -m 0755 /tmp/deploy-tableros-bi /usr/local/sbin/deploy-tableros-bi
+       sudo bash /tmp/migrar-a-srv.sh --origen /home/wvargas/tableros-bi --web-dir /srv/tableros-bi/cvp/web --sin-url-prueba
+3. **Primera carga de datos y config** (quedan detrás de nginx; aún sin ruta pública):
+       cd /srv/tableros-bi/cvp/app && sudo -u tableros env PYTHONIOENCODING=utf-8 CVP_WEB_DIR=/srv/tableros-bi/cvp/web PYTHONPATH=../lib python3 actualizar_datos.py --env-file ../cvp.env
+       printf 'window.CVP_CONFIG = {allowSample: false};\n' | sudo -u tableros tee /srv/tableros-bi/cvp/web/config.js
+   El HTML lo despliega el workflow de producción (`confirmar = DESPLEGAR-PRODUCCION`): ahora solo empaqueta `Tablero_CVP.html`.
+4. **nginx** (el servlet ya responde, y la carpeta existe): `sudo bash /tmp/nginx-agregar-tablero.sh --retirar-ruta-vieja`. Respalda, valida con `nginx -t`, verifica 401 sin sesión y que `/sgi/` no cambie; revierte solo si algo falla (probado con nginx 1.18 sobre la copia del `sgi.conf` actual, incluidos intentos de esquivar la protección).
+5. **Limpiar lo viejo**: `sudo rm -rf /srv/tomcat8/webapps/tablero-cvp`.
+6. **Menú**: `url.tablerocvp` del perfil `produccion` = `../tablero-cvp/Tablero_CVP.html` y redesplegar el WAR.
+7. **Verificar**: con sesión (Reportes → Tablero CVProgreso) carga con datos; sin sesión, `curl -s -o /dev/null -w "%{http_code}\n" https://cvprogreso.cvp.gov.co/sgi/tablero-cvp/data.js` → 401; `http://3.21.77.133:8095/...` sin respuesta.
+Rollback de nginx: `sudo cp -a /etc/nginx/sites-available/sgi.conf.bak-<fecha> /etc/nginx/sites-available/sgi.conf && sudo nginx -t && sudo systemctl reload nginx`.
+
+> Los pasos numerados 8 y 10 más abajo (ruta `/tablero-cvp` hacia Tomcat y `url.tablerocvp=/tablero-cvp/...`) son del diseño anterior y quedan **reemplazados** por este plan.
+
 ## Decisiones previas (pedir confirmación)
 1. **Pagos en $0:** ¿se sale así (con la advertencia) o se espera al módulo financiero? (Cristian / Guillermo)
 2. **Sin login:** `/tablero-cvp/data.js` es público para quien tenga la URL (CHIP, barrio, estados). ¿Se acepta en producción o se protege primero? (Daniel / Victor)
@@ -93,7 +122,7 @@ Llave solo para este repo (en la Mac; la privada nunca se guarda fuera de GitHub
 
 ## 7. (reservado)
 
-## 8. 🔒 nginx: ruta `/tablero-cvp` (`nginx-agregar-tablero.sh`)
+## 8. (reemplazado por el plan E de arriba) nginx: ruta `/tablero-cvp`
 Tomcat sirve el contexto en `localhost:8095/tablero-cvp`, pero nginx solo enruta los contextos que tienen `location`. El script **duplica el bloque `location /cobracvp-webcomponents`** de `sgi.conf` como `/tablero-cvp` (con compresión gzip, porque `data.js` pesa ~1,5 MB), con estas garantías (probadas con nginx 1.18 en Ubuntu 20.04 sobre una copia del archivo real): `nginx -t` antes y después, respaldo con fecha, comprobación de que `/tablero-cvp/data.js` responda 200 y de que `/sgi/` y `/cobracvp-webcomponents/` respondan igual que antes; si algo falla restaura el original. Es idempotente.
     scp /Users/wuilly/Work/Interkont/CVP/tableros-bi/deploy/servidor/nginx-agregar-tablero.sh Interkont-Produccion:/tmp/
     ssh -t Interkont-Produccion 'sudo bash /tmp/nginx-agregar-tablero.sh'
@@ -113,7 +142,7 @@ Variables y secreto (la llave privada se borra de la Mac al terminar):
     rm -P /tmp/cvp_prod_key /tmp/cvp_prod_key.pub
 Primer despliegue: Actions → *Desplegar tablero CVP en producción* → *Run workflow* (rama `cvp`; escribir `DESPLEGAR-PRODUCCION` en la confirmación). Si la conexión no responde, revisar el *security group* de AWS de producción: debe permitir SSH desde la IP del runner (`ip-172-31-38-67`).
 
-## 10. Menú del JSF (cobra-housing)
+## 10. (reemplazado por el plan E de arriba) Menú del JSF (cobra-housing)
 En `pom.xml`, perfil `produccion`: `<url.tablerocvp>/tablero-cvp/Tablero_CVP.html</url.tablerocvp>` (hoy `${url.bicvprogreso}` = Power BI). Desplegar el WAR de producción con Jenkins **después** de los pasos anteriores. Preproducción queda para el final y necesita su propia carpeta y actualizador. Reversión del menú: volver `url.tablerocvp` a `${url.bicvprogreso}` y redesplegar.
 
 ## Verificación final

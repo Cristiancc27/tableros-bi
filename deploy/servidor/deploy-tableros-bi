@@ -7,6 +7,7 @@ set -Eeuo pipefail
 
 # Valores por defecto = servidor de desarrollo. Cada servidor puede sobreescribirlos en /etc/tableros-bi/deploy.conf (lo escribe
 # migrar-a-srv.sh). Solo se aceptan estas 4 claves, con formato validado, y el archivo debe ser de root y no escribible por otros.
+# URL_PRUEBA vacío = modo "archivos servidos por nginx desde disco, con sesión" (producción): no hay página que pedir por HTTP; se verifica el archivo instalado.
 WEB_DIR="/srv/tomcat/webapps/tablero-cvp"
 BACKUP_DIR="/srv/tableros-bi/cvp/backup"
 USUARIO="tableros"
@@ -26,7 +27,7 @@ if [[ -f "$CONF" ]]; then
     case "$clave" in
       WEB_DIR|BACKUP_DIR) [[ "$valor" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
       USUARIO) [[ "$valor" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
-      URL_PRUEBA) [[ "$valor" =~ ^http://localhost(:[0-9]+)?/[A-Za-z0-9._/-]+$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
+      URL_PRUEBA) [[ -z "$valor" || "$valor" =~ ^http://localhost(:[0-9]+)?/[A-Za-z0-9._/-]+$ ]] || { echo "Valor inválido para $clave en $CONF" >&2; exit 1; } ;;
       ""|\#*) continue ;;
       *) echo "Clave no permitida en $CONF: $clave" >&2; exit 1 ;;
     esac
@@ -82,7 +83,7 @@ done
 
 # El web.xml solo se reemplaza si cambió: reemplazarlo hace que Tomcat recargue el contexto.
 CAMBIO_WEBXML="no"
-if [[ -f "$TMP/WEB-INF/web.xml" ]]; then
+if [[ -n "$URL_PRUEBA" && -f "$TMP/WEB-INF/web.xml" ]]; then
   if ! cmp -s "$TMP/WEB-INF/web.xml" "$WEB_DIR/WEB-INF/web.xml" 2>/dev/null; then
     mkdir -p "$WEB_DIR/WEB-INF"
     chown "$USUARIO:$USUARIO" "$WEB_DIR/WEB-INF"
@@ -105,20 +106,29 @@ restaurar() {
   fi
 }
 
-# Verificación: 200 y X-Frame-Options SAMEORIGIN (si el web.xml cambió, Tomcat tarda unos segundos en recargar el contexto).
-ESPERA=30; [[ "$CAMBIO_WEBXML" == "si" ]] && ESPERA=60
+# Verificación. Modo HTTP (desarrollo): 200 y X-Frame-Options SAMEORIGIN (si el web.xml cambió, Tomcat tarda unos segundos en recargar
+# el contexto). Modo disco (producción, URL_PRUEBA vacío): el archivo instalado es idéntico al del paquete y legible por el servidor web.
 OK="no"
-for ((i=0; i<ESPERA; i+=3)); do
-  CABECERAS="$(curl -s -D - -o /dev/null --max-time 5 "$URL_PRUEBA" || true)"
-  if grep -q "^HTTP/[0-9.]* 200" <<<"$CABECERAS" && grep -qi "^X-Frame-Options: SAMEORIGIN" <<<"$CABECERAS"; then
-    OK="si"; break
+if [[ -z "$URL_PRUEBA" ]]; then
+  if cmp -s "$TMP/Tablero_CVP.html" "$WEB_DIR/Tablero_CVP.html" && [[ "$(stat -c %a "$WEB_DIR/Tablero_CVP.html")" == "644" ]]; then
+    OK="si"
   fi
-  sleep 3
-done
+else
+  ESPERA=30; [[ "$CAMBIO_WEBXML" == "si" ]] && ESPERA=60
+  for ((i=0; i<ESPERA; i+=3)); do
+    CABECERAS="$(curl -s -D - -o /dev/null --max-time 5 "$URL_PRUEBA" || true)"
+    if grep -q "^HTTP/[0-9.]* 200" <<<"$CABECERAS" && grep -qi "^X-Frame-Options: SAMEORIGIN" <<<"$CABECERAS"; then
+      OK="si"; break
+    fi
+    sleep 3
+  done
+fi
 if [[ "$OK" != "si" ]]; then
   restaurar
   exit 1
 fi
 
 rm -f "$PAQUETE"
-echo "Despliegue exitoso: Tablero_CVP.html actualizado (web.xml cambió: $CAMBIO_WEBXML). Respaldo: $BACKUP_DIR/Tablero_CVP.html.$STAMP"
+RESPALDO="(no había HTML anterior)"
+[[ -f "$BACKUP_DIR/Tablero_CVP.html.$STAMP" ]] && RESPALDO="$BACKUP_DIR/Tablero_CVP.html.$STAMP"
+echo "Despliegue exitoso: Tablero_CVP.html actualizado (web.xml cambió: $CAMBIO_WEBXML). Respaldo: $RESPALDO"

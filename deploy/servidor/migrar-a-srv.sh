@@ -15,6 +15,7 @@ while [[ "$#" -gt 0 ]]; do
     --origen) ORIGEN="${2:?falta el valor de --origen}"; shift 2 ;;
     --web-dir) WEB_DIR="${2:?falta el valor de --web-dir}"; shift 2 ;;
     --url-prueba) URL_PRUEBA="${2:?falta el valor de --url-prueba}"; shift 2 ;;
+    --sin-url-prueba) URL_PRUEBA=""; shift ;;   # producción con nginx sirviendo desde disco: el despliegue verifica el archivo, no una URL
     --omitir-prueba) OMITIR_PRUEBA="si"; shift ;;   # solo para pruebas sin base de datos
     *) echo "Argumento desconocido: $1" >&2; exit 1 ;;
   esac
@@ -31,14 +32,14 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 [[ -d /etc/cron.d ]] || { echo "No existe /etc/cron.d: cron no está instalado. No se puede programar la actualización diaria." >&2; exit 1; }
 [[ "$WEB_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--web-dir inválido" >&2; exit 1; }
-[[ "$URL_PRUEBA" =~ ^http://localhost(:[0-9]+)?/[A-Za-z0-9._/-]+$ ]] || { echo "--url-prueba inválida (debe ser http://localhost[:puerto]/ruta)" >&2; exit 1; }
+[[ -z "$URL_PRUEBA" || "$URL_PRUEBA" =~ ^http://localhost(:[0-9]+)?/[A-Za-z0-9._/-]+$ ]] || { echo "--url-prueba inválida (debe ser http://localhost[:puerto]/ruta)" >&2; exit 1; }
 for f in "$ORIGEN/app/actualizar_datos.py" "$ORIGEN/app/cvp_config.py" "$ORIGEN/cvp.env"; do
   [[ -f "$f" ]] || { echo "Falta $f" >&2; exit 1; }
 done
 [[ -d "$ORIGEN/lib/psycopg2" ]] || { echo "Falta $ORIGEN/lib/psycopg2" >&2; exit 1; }
 if [[ ! -d "$WEB_DIR" ]]; then
-  [[ -d "$(dirname "$WEB_DIR")" ]] || { echo "No existe $(dirname "$WEB_DIR"): revisar --web-dir" >&2; exit 1; }
-  mkdir -p "$WEB_DIR"   # primera instalación (producción): la carpeta del tablero aún no existe
+  # Se crea si su carpeta padre ya existe o está dentro de /srv/tableros-bi (que este script crea en el paso 2).
+  [[ -d "$(dirname "$WEB_DIR")" || "$WEB_DIR" == /srv/tableros-bi/* ]] || { echo "No existe $(dirname "$WEB_DIR"): revisar --web-dir" >&2; exit 1; }
 fi
 
 echo "1/6 Usuario de servicio '$USUARIO'"
@@ -55,7 +56,8 @@ chown -R "$USUARIO:$USUARIO" /srv/tableros-bi
 chmod 755 /srv/tableros-bi "$DESTINO" "$DESTINO/app" "$DESTINO/lib" "$DESTINO/log" "$DESTINO/backup"   # legibles (logs); el secreto es solo cvp.env
 chmod 600 "$DESTINO/cvp.env"
 
-echo "3/6 Dueño de $WEB_DIR -> $USUARIO (lectura abierta para Tomcat)"
+echo "3/6 Dueño de $WEB_DIR -> $USUARIO (lectura abierta para el servidor web)"
+mkdir -p "$WEB_DIR"
 chown -R "$USUARIO:$USUARIO" "$WEB_DIR"
 chmod 755 "$WEB_DIR"
 find "$WEB_DIR" -type f -exec chmod 644 {} +
