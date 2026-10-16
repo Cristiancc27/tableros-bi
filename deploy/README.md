@@ -1,9 +1,11 @@
-# Despliegue automático del tablero CVP (desarrollo)
+# Despliegue del tablero CVP (desarrollo)
 
-Al cambiar `Tablero_CVP.html` (o `deploy/WEB-INF/web.xml`) en la rama `cvp`, el workflow `.github/workflows/deploy-develop.yml` copia el HTML al servidor de desarrollo. Los **datos** (`data.js`) los sigue refrescando el cron del servidor (todos los días 6:00); el workflow no los toca.
+> **Los workflows de despliegue ya no viven en esta rama.** Son unificados y están en la rama `main` (`deploy-develop.yml` y `deploy-prod.yml`): se lanzan desde `main` eligiendo el cliente `cvp`, y descargan el código de esta rama. Ver `docs/CONVENCIONES.md` en `main`. El despliegue automático por push ya no existe.
+
+Al lanzar el workflow de desarrollo con el cliente `cvp`, se copia el HTML (`Tablero_CVP.html`) y `deploy/WEB-INF/web.xml` al servidor de desarrollo. Los **datos** (`data.js`) los sigue refrescando el cron del servidor (todos los días 6:00); el workflow no los toca.
 
 ```
-push a cvp ──> runner de la organización ──ssh (cicd-deploy)──> sudo deploy-tableros-bi <paquete.tar.gz>
+lanzamiento manual desde main (cliente cvp) ──> runner de la organización ──ssh (cicd-deploy)──> sudo deploy-tableros-bi <paquete.tar.gz>
                                                                    └─ valida, respalda, instala y verifica (200 + SAMEORIGIN); si falla, restaura
 ```
 
@@ -33,8 +35,7 @@ Desde la Mac, en la carpeta de este repo:
        ssh -t Interkont-Desarrollo 'sudo visudo -cf /tmp/sudoers-cicd-deploy-tableros-bi && sudo install -o root -g root -m 0440 /tmp/sudoers-cicd-deploy-tableros-bi /etc/sudoers.d/cicd-deploy-tableros-bi && sudo visudo -c'
 
 3. En GitHub (`tableros-bi` → Settings → Environments → `interkont-develop`): **secreto**: `DEPLOY_SSH_PRIVATE_KEY`; **variables**: `DEPLOY_HOST`, `DEPLOY_USER` (= `cicd-deploy`), `DEPLOY_KNOWN_HOSTS`; opcionales (variables): `DEPLOY_PORT`, `DEPLOY_SCRIPT`, `DEPLOY_KEY_FINGERPRINT`. Son los mismos valores que usa `solicitudes-ikont` para el mismo servidor (los administra Felix).
-4. Probar a mano: Actions → *Desplegar tablero CVP en desarrollo* → *Run workflow* (rama `cvp`).
-5. Cuando funcione, activar el despliegue automático por push: variable de repositorio `DEPLOY_CVP_AUTO` = `true`.
+4. Probar a mano: Actions → *Desplegar tablero en desarrollo* → *Run workflow* desde la rama **`main`**, cliente `cvp`.
 
 ## Seguridad
 - `cicd-deploy` solo puede ejecutar ese script con sudo; el script solo acepta `/tmp/tableros-bi-cvp-<run>-<intento>.tar.gz` con exactamente `Tablero_CVP.html` y `WEB-INF/web.xml`, rechaza cualquier otra entrada y no toca `data.js`, `config.js` ni la base.
@@ -43,17 +44,16 @@ Desde la Mac, en la carpeta de este repo:
 
 ## Reversión
 - HTML: respaldos en `/srv/tableros-bi/cvp/backup/` (10 más recientes); el script restaura solo si el tablero no responde bien tras el cambio.
-- Quitar el despliegue automático: poner `DEPLOY_CVP_AUTO` en `false` o borrar la variable.
 - Quitar el permiso: `sudo rm /etc/sudoers.d/cicd-deploy-tableros-bi /usr/local/sbin/deploy-tableros-bi`.
 
-## Un `yml` y un environment por ambiente (convención del equipo)
-| Ambiente | Workflow | Environment | Disparo |
+## Workflows y environments (convención del equipo)
+| Ambiente | Workflow (en `main`) | Environment | Disparo |
 |---|---|---|---|
-| Desarrollo | `deploy-develop.yml` | `interkont-develop` (limitado a la rama `cvp`) | manual, y por push si `DEPLOY_CVP_AUTO=true` |
-| Producción | `deploy-prod.yml` | `cvp-prod` (revisor obligatorio, rama `cvp`) | solo manual |
+| Desarrollo | `deploy-develop.yml` | `interkont-develop` (solo `main`) | manual, cliente `cvp` |
+| Producción | `deploy-prod.yml` | `cvp-prod` (solo `main`) | manual, cliente `cvp`, confirmando `DESPLEGAR-PRODUCCION` |
 
 Cada environment lleva el secreto `DEPLOY_SSH_PRIVATE_KEY` y las variables `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS` (y opcionales). Producción: ver `DESPLIEGUE_PRODUCCION.md` (usuario `cicd-tableros`, par de llaves propio, `migrar-a-srv.sh` con `--web-dir` y `--url-prueba` de producción).
 
 ## Protecciones del repo
 - Rama `cvp`: pull request con 1 aprobación; sin force-push ni borrado. Los admins pueden saltarla (no se activó *Do not allow bypassing*).
-- `interkont-develop` solo admite la rama `cvp`.
+- `interkont-develop` y `cvp-prod` solo admiten la rama `main`, donde viven los workflows.

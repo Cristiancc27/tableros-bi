@@ -22,7 +22,7 @@ Desarrollo NO cambia (Tomcat atiende el puerto 80 directo, sin nginx delante: si
 - El tablero (HTML, `config.js`, `data.js`) vive **fuera de Tomcat**, en `/srv/tableros-bi/cvp/web/`. Tomcat no lo publica por ningún puerto.
 - nginx lo entrega desde disco bajo **`/sgi/tablero-cvp/`** y exige sesión para TODO (`auth_request` → servlet `/sgi/tablero-auth` del JSF, que responde 204 si hay sesión con el permiso `btnreportes`, 401 sin sesión, 403 sin permiso). La cookie de sesión del aplicativo lleva `Path=/sgi`, por eso el tablero va bajo `/sgi/` (con otra ruta el navegador no la enviaría).
 - El menú del JSF apunta a la ruta relativa `../tablero-cvp/Tablero_CVP.html` (sirve igual en `/sgi` y `/cobracvp-wv`).
-- Cambios del HTML → GitHub Actions (`deploy-prod.yml`, manual) sin tocar el aplicativo. Datos → cron. El WAR solo se redespliega si cambia la regla de acceso o la ruta.
+- Cambios del HTML → GitHub Actions (`deploy-prod.yml` de la rama `main`, manual) sin tocar el aplicativo. Datos → cron. El WAR solo se redespliega si cambia la regla de acceso o la ruta.
 
 **Estado de partida (2026-10-12)**: usuario `tableros`, `/srv/tableros-bi/cvp`, `cicd-tableros`, script de despliegue, `cvp-prod` en GitHub: hechos. `data.js` borrado y cron desactivado (había quedado accesible por el 8095, que ya está cerrado). Daniel dejó un `location /tablero-cvp` (proxy al Tomcat) para el HTML, sin datos.
 
@@ -129,8 +129,8 @@ Tomcat sirve el contexto en `localhost:8095/tablero-cvp`, pero nginx solo enruta
 **Este paso hace público el tablero** (`https://cvprogreso.cvp.gov.co/tablero-cvp/…`); `data.js` no tiene login. Revertir: `sudo cp -a /etc/nginx/sites-available/sgi.conf.bak-<fecha> /etc/nginx/sites-available/sgi.conf && sudo nginx -t && sudo systemctl reload nginx`.
 
 ## 9. GitHub: environment `cvp-prod` y primer despliegue (admin del repo)
-Convención del equipo (Felix): **un `yml` por ambiente y un environment por ambiente**. Producción usa `.github/workflows/deploy-prod.yml` (solo manual) y el environment `cvp-prod`.
-Environment limitado a la rama `cvp`. **El plan Team de la organización NO admite revisores obligatorios en environments de repos privados** (GitHub responde 422): la salvaguarda es la confirmación escrita del workflow (`confirmar = DESPLEGAR-PRODUCCION`) y la protección de la rama `cvp`.
+Convención del equipo: **workflows unificados en `main`** (`deploy-develop.yml` y `deploy-prod.yml`, uno para todos los clientes) y un environment por cliente y ambiente. Producción de CVP usa el `deploy-prod.yml` de `main` (solo manual, cliente `cvp`) y el environment `cvp-prod`.
+Environment limitado a la rama `main`, donde viven los workflows. **El plan Team de la organización NO admite revisores obligatorios en environments de repos privados** (GitHub responde 422): la salvaguarda es la confirmación escrita del workflow (`confirmar = DESPLEGAR-PRODUCCION`) y la protección de las ramas `main` y `cvp`.
     gh api -X PUT repos/gitinterkont/tableros-bi/environments/cvp-prod -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
     gh api -X POST repos/gitinterkont/tableros-bi/environments/cvp-prod/deployment-branch-policies -f name=cvp
 Variables y secreto (la llave privada se borra de la Mac al terminar):
@@ -140,7 +140,7 @@ Variables y secreto (la llave privada se borra de la Mac al terminar):
     ssh-keygen -lf /tmp/cvp_prod_key.pub | awk '{print $2}' | gh variable set DEPLOY_KEY_FINGERPRINT --env cvp-prod --repo gitinterkont/tableros-bi
     gh secret set DEPLOY_SSH_PRIVATE_KEY --env cvp-prod --repo gitinterkont/tableros-bi < /tmp/cvp_prod_key
     rm -P /tmp/cvp_prod_key /tmp/cvp_prod_key.pub
-Primer despliegue: Actions → *Desplegar tablero CVP en producción* → *Run workflow* (rama `cvp`; escribir `DESPLEGAR-PRODUCCION` en la confirmación). Si la conexión no responde, revisar el *security group* de AWS de producción: debe permitir SSH desde la IP del runner (`ip-172-31-38-67`).
+Primer despliegue: Actions → *Desplegar tablero en producción* → *Run workflow* (rama **`main`**, cliente `cvp`; escribir `DESPLEGAR-PRODUCCION` en la confirmación). Si la conexión no responde, revisar el *security group* de AWS de producción: debe permitir SSH desde la IP del runner (`ip-172-31-38-67`).
 
 ## 10. (reemplazado por el plan E de arriba) Menú del JSF (cobra-housing)
 En `pom.xml`, perfil `produccion`: `<url.tablerocvp>/tablero-cvp/Tablero_CVP.html</url.tablerocvp>` (hoy `${url.bicvprogreso}` = Power BI). Desplegar el WAR de producción con Jenkins **después** de los pasos anteriores. Preproducción queda para el final y necesita su propia carpeta y actualizador. Reversión del menú: volver `url.tablerocvp` a `${url.bicvprogreso}` y redesplegar.
