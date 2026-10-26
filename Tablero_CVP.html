@@ -435,10 +435,18 @@ const charts=[]; // funciones que dibujan gráficas (se re-ejecutan al redimensi
 const NOTE='Etapa temprana · aún sin registros';
 
 function pagePortada(c){
+  // Definiciones de los KPI acordadas con CVP (Shannon Jimenez, 26/10/2026): se cuentan por id de estado.
+  const cntIds=ids=>c.hog.reduce((a,h)=>a+(ids.includes(+h.EstadoID)?1:0),0);
+  const kAprob=cntIds([14,15,1,2,17,19]), // Estructuración aprobada en adelante
+        kAsig=cntIds([15,1,2,17,19]),     // Asignado en adelante
+        kEjec=cntIds([1]),                // En ejecución
+        kTerm=cntIds([2,17,19]),          // Ejecutado entregado, entregado aprobado y con certificado
+        kCert=cntIds([19]);               // Con certificado de existencia
+  // La barra de avance usa los estados excluyentes (cada hogar en una sola etapa).
   const aprob=cntState(c,'Estructuración aprobada'), asig=cntState(c,'Asignado'), ejec=cntState(c,'En ejecución'),
         term=cntState(c,'Ejecutado Entregado'), cert=cntState(c,'Ejecutado con certificado de existencia');
-  const asigAcum=asig+ejec+term+cert; // KPI acumulado: asignado + en ejecución + terminados + con certificado (la barra de avance usa los estados excluyentes)
   const m=c.meta||1;
+  const pcm=v=>fPct(v/m)+' de la meta ('+fInt(m)+')';
   const seg=[['Estructuración aprobada',aprob,'#DC2626'],['Asignado',asig,'#B91C1C'],['En ejecución',ejec,'#991B1B'],['Mejoramientos terminados',term,'#7F1D1D'],['Con certificado',cert,'#0F172A']];
   const used=seg.reduce((a,s)=>a+s[1],0);
   return `
@@ -448,11 +456,11 @@ function pagePortada(c){
     <p>Sistema integrado de monitoreo territorial, financiero y operativo del programa de mejoramiento de vivienda en Bogotá D.C.</p>
   </section>
   <section class="grid g5 mt">
-    ${kpi({lb:'Estructuraciones aprobadas',v:aprob,nt:aprob?'':NOTE,c:'#DC2626',pct:aprob/m,pcl:fPct(aprob/m)+' de la meta ('+fInt(m)+')'})}
-    ${kpi({lb:'Hogares asignados',v:asigAcum,nt:asigAcum?'Acumulado: asignado + en ejecución + terminados + con certificado':NOTE,c:'#B91C1C',pct:asigAcum/m,pcl:fPct(asigAcum/m)+' de la meta'})}
-    ${kpi({lb:'En ejecución',v:ejec,nt:ejec?'':NOTE,c:'#991B1B',pct:ejec/m,pcl:fPct(ejec/m)+' de la meta'})}
-    ${kpi({lb:'Mejoramientos terminados',v:term,nt:term?'':NOTE,c:'#7F1D1D',pct:term/m,pcl:fPct(term/m)+' de la meta'})}
-    ${kpi({lb:'Con certificado de existencia',v:cert,nt:cert?'':NOTE,c:'#0F172A',pct:cert/m,pcl:fPct(cert/m)+' de la meta'})}
+    ${kpi({lb:'Estructuraciones aprobadas',v:kAprob,nt:kAprob?'':NOTE,c:'#DC2626',pct:kAprob/m,pcl:pcm(kAprob)})}
+    ${kpi({lb:'Hogares asignados',v:kAsig,nt:kAsig?'':NOTE,c:'#B91C1C',pct:kAsig/m,pcl:pcm(kAsig)})}
+    ${kpi({lb:'En ejecución',v:kEjec,nt:'',c:'#991B1B'})}
+    ${kpi({lb:'Mejoramientos terminados',v:kTerm,nt:kTerm?'':NOTE,c:'#7F1D1D',pct:kTerm/m,pcl:pcm(kTerm)})}
+    ${kpi({lb:'Con certificado de existencia',v:kCert,nt:kCert?'':NOTE,c:'#0F172A',pct:kCert/m,pcl:pcm(kCert)})}
   </section>
   <section class="card hasdl mt fade">${dlBtn('avance','Avance del programa frente a la meta',['Etapa','Hogares','% de la meta'],seg.map(s=>[s[0],s[1],fPct(s[1]/m)]))}
     <h3>Avance del programa frente a la meta</h3>
